@@ -1,0 +1,964 @@
+---
+title: 'Gov52 Final Project: Replication of "Economic Reasoning with a Racial Hue:
+  Is the Immigration Consensus Purely Race Neutral?"'
+author: "Will Rowley"
+date: "5/8/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(haven)
+library(foreign)
+library(MASS)
+
+
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r data-import}
+
+hhdata <- read_dta("./data/hhdata.dta")
+
+mturk <- read_dta("./data/immigration_mturk.dta")
+
+ssi <- read_dta("./data/immigration_ssi.dta")
+
+```
+
+# Introduction 
+
+## Original Paper Overview
+
+"Economic Reasoning with a Racial Hue: Is the Immigration Consensus Purely 
+Race Neutral?" by Newman and Malhotra [1] is an in depth look 
+at native US citizen's views on immigration. 
+Specifically, it is concerned with a concept called the "skill premium", which
+is the preference that native citizens have for high skill workers, such as 
+doctors, scientists, and engineers over low skill workers without a higher 
+education. The paper states that prior research has shown that in immigrant 
+receiving nations [2][3], this skill premium is present, irrespective of the immigrants
+nationality, race, or religion, and irrespective of the respondents economic 
+position, partisanship, and personal prejudices. 
+
+This is a surprising result,
+as one would expect that personal views on immigration would be driven by one's 
+own position in the labor market, wanting immigrants that wouldn't compete with
+them for jobs. However, there seems to be a consensus that high skilled immigration 
+is better for the receiving country, trumping all other cultural and 
+ethnic prejudices. 
+  This paper seeks to test the idea that the skill premium given to immigrants is 
+race neutral. Specifically, in America it looks at aversion to Latino immigration,
+the most prevalent group in the US who mostly work at low-skill jobs. The paper
+subjects this race neutral assumption to a series of "critical tests", looking
+at how a variety of factors such as prejudice and income influence how a person
+gives a skill premium to a specific individual. 
+
+- Critical Test 1 - Does racial prejudice condition the skill premium? In other
+words, how do individuals with a high level of prejudice view low and high 
+skilled immigrants from different countries. 
+
+- Critical Test 2 - Do preexisting sociotropic beliefs about skill condition 
+the skill premium? How do preexisting beliefs about high vs. low skilled 
+immigrants impact someone's view on a particular low vs. high skilled immigrant
+from different countries. 
+
+- Critical Test 3 - Does providing information about the value of low-skilled
+immigrant workers attenuate the skill premium? If you show people how low-skilled
+immigration is actually good for the country, how do their views change? 
+
+- Critical Test 4 -  Does manipulating skill also manipulate cultural 
+attributes? How do respondents view an immigrant, independent of their 
+assumption on how well they can assimilate.
+
+This paper concludes that while it can replicate the existence of the skill 
+premium, it doesn't find the same race neutrality as previous research. 
+Specifically, critical test 1 fails, as the data shows that those with higher 
+levels of prejudice value high skilled immigrants more than those with low 
+levels of prejudice. Specifically, they care more about whether a hypothetical 
+immigrant from Mexico is high skilled than they do for majority white countries,
+while those with low prejudice afford the same skill premium to all immigrant, 
+independent of country of origin. 
+
+## Our Replication
+
+In our replication project, we work with 3 different data sets. The first is
+data collected by Hainmueller and Hopkins, a paper that confirms the existence
+of the skill premium. The authors use this data to test for racial bias not 
+initially looked at in the original paper. The second two datasets are from 
+original experiments designed by Newman and Malhotra, one conducted through 
+Amazon's Mechanical Turk and the other through Survey Sampling International. 
+The surveys are all constructed in similar ways, asking respondents how likely
+they are to admit a particular individual based on that immigrant's 
+country of origin, job, gender, age, education, ect. 
+
+The code provided proved largely unhelpful, as none of the meaningful code is 
+written in r, and infact is written in a language I have thus be unable to 
+identify. It does provide information on what the variables represent, but 
+beyond that much of the analysis in this paper is done independent of their
+done in their code. 
+
+We perform ordinary least squares regressions as is done in the original paper. 
+We look at the likelihood of accepting an immigrant as a function of that 
+immigrant's skill, with the respondents subset by their prejudices and 
+immigrants subset by their country of origin. We focus on the results of 
+critical tests one and two, since these are the tests that challenge the race
+neutral assumptions of previous literature. 
+
+# Critical Test 1 - Reproduction with Hainmueller and Hopkins data
+
+We first seek to reproduce the results of figure 1, which shows that in the 
+Hainmueller and Hopkins data, there is evidence of racial bias for the skill
+premium in high prejudice individuals. We run a ordinary least squares 
+regression for different subsets of the population for admitting an immigrant
+as a function of that immigrants characteristics, and look at the coefficient
+of the immigrants skill (i.e. how much being a high skill immigrant impacts 
+their chance of the respondent approving them). We define an individual as 
+having high prejudice as someone who responded below 50 on survey question 5, a
+question designed to evaluate their prejudice against latino immigrants. 
+
+```{r}
+
+# DATA CLEANING FOR CRITICAL TEST 1
+
+hhdata_clean <- hhdata %>% 
+                
+  dplyr::select(chosen_immigrant, 
+         featjob, 
+         w1_q5, 
+         featcountry, 
+         featgender, 
+         featlang, 
+         featexp, 
+         feated) %>%
+  
+  drop_na() %>%
+  
+  # We sort jobs into low skill ones and high skill ones
+  
+  mutate(jobskill = factor(featjob, labels = c("lowskill",
+                                        "lowskill",
+                                        "lowskill",
+                                        "lowskill",
+                                        "lowskill",
+                                        "lowskill",
+                                        "lowskill",
+                                        "highskill",
+                                        "highskill",
+                                        "highskill",
+                                        "highskill"))) %>% 
+  
+  # Select the countries we care about
+  
+  filter(featcountry %in% c(1, 2, 3, 5)) %>%
+  
+  mutate(country = factor(featcountry, labels = c("Germany", 
+                                                      "France", 
+                                                      "Mexico", 
+                                                      "Poland"))) %>%
+  
+  # define high prejudice as someone with a w1_q5 of under 50
+
+  mutate(prejudice = ifelse(w1_q5 >= 50, "Low", "High"))
+
+# CREATING THE MODELS AND GATHERING THE COEFFICIENTS
+
+ct1 <- data.frame(Country = character(),
+                  prejudice = character(), 
+                  estimate = double(),
+                  se = double())
+
+# Germany Low prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill, 
+              data = hhdata_clean %>% filter(country == "Germany",
+                                             prejudice == "Low"),
+              family = binomial(link = "logit"))
+
+ct1[nrow(ct1) + 1,] <- c("Germany",
+            "Low",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+# Germany LHigh prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill + featgender + featlang + featexp + feated, 
+              data = hhdata_clean %>% filter(country == "Germany",
+                                             prejudice == "High"),
+              family = binomial(link = "logit"))
+
+
+ct1[nrow(ct1) + 1,] <- c("Germany",
+            "High",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+# France Low prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill + featgender + featlang + featexp + feated, 
+              data = hhdata_clean %>% filter(country == "France",
+                                             prejudice == "Low"),
+              family = binomial(link = "logit"))
+
+
+ct1[nrow(ct1) + 1,] <- c("France",
+            "Low",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+
+# France High prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill + featgender + featlang + featexp + feated, 
+              data = hhdata_clean %>% filter(country == "France",
+                                             prejudice == "High"),
+              family = binomial(link = "logit"))
+
+
+ct1[nrow(ct1) + 1,] <- c("France",
+            "High",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+# Poland Low prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill + featgender + featlang + featexp + feated, 
+              data = hhdata_clean %>% filter(country == "Poland",
+                                             prejudice == "Low"),
+              family = binomial(link = "logit"))
+
+
+ct1[nrow(ct1) + 1,] <- c("Poland",
+            "Low",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+# Poland High prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill + featgender + featlang + featexp + feated, 
+              data = hhdata_clean %>% filter(country == "Poland",
+                                             prejudice == "High"),
+              family = binomial(link = "logit"))
+
+
+ct1[nrow(ct1) + 1,] <- c("Poland",
+            "High",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+# Mexico Low prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill + featgender + featlang + featexp + feated, 
+              data = hhdata_clean %>% filter(country == "Mexico",
+                                             prejudice == "Low"),
+              family = binomial(link = "logit"))
+
+
+ct1[nrow(ct1) + 1,] <- c("Mexico",
+            "Low",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+# Mexico Low prejudice
+
+ct1_fit <- glm(chosen_immigrant ~ jobskill + featgender + featlang + featexp + feated, 
+              data = hhdata_clean %>% filter(country == "Mexico",
+                                             prejudice == "High"),
+              family = binomial(link = "logit"))
+
+
+ct1[nrow(ct1) + 1,] <- c("Mexico",
+            "High",
+            summary(ct1_fit)$coefficients[2,1],
+            summary(ct1_fit)$coefficients[2,2])
+
+# GRAPH
+
+ct1 <- ct1 %>%
+  
+  mutate(estimate = as.double(estimate)) %>% 
+  
+  mutate(se = as.double(se)) %>%
+  
+  mutate(lb = (estimate - (1.96 * se))) %>%
+  
+  mutate(ub = (estimate + (1.96 * se)))
+
+ct1 %>%
+  
+  group_by(prejudice, Country) %>%
+  
+  ggplot() +
+  
+  geom_pointrange(aes(x = prejudice, 
+             y = estimate, 
+             ymin = lb, 
+             ymax = ub, 
+             shape = Country,
+             fill = Country),
+             position = position_dodge(width=.5),
+             size = 1) + 
+  
+  geom_hline(yintercept=0) + 
+  
+  labs(x = "Prejudice Level",
+       y = "Skill Premium Afforded",
+       title = "Critical Test 1 Analysis with HH Data") + 
+  
+  theme_classic()
+
+
+```
+
+While our models return different coefficients then the original paper, the 
+end analysis is the same, in that prejudice against Mexican immigrants confers
+a higher skill premium. In other words, those with aversions to Latino 
+immigrants care more about that immigrant's skill level when deciding whether
+they support them immigrating, more so than low prejudice individuals. 
+Furthermore, this result is statistically significant, with 95% error bars shown
+on the graph. For white majority countries, this result is not statistically 
+significant, with the trend being the opposite for Germany. 
+
+# Critical Test 1 with Mechanical Turk Data
+
+The mechanical turk data was the first dataset collected by the researchers. 
+It operates similarly to the Hainmueller and Hopkins survey, with respondents
+being asked to report the likelihood of approving of an individual's
+immigration depending on that individuals country of origin, skill level, and 
+other factors. We define low and high prejudice individuals based on their 
+average of survey questions that asked their opinions on hispanics being 
+"intelligent, illegal, lazy, and violent", with the bottom 50% of individuals
+being identified as high prejudice and the rest low. We then run similar 
+regressions as those in the previous section. 
+
+```{r}
+
+ct1_mturk <- mturk %>% 
+  
+  mutate(hisp_prej = (hispilleg + hispintel + hisplazy + hispviol) / 4) %>%
+  
+  mutate(white_prej = (whiteilleg + whiteintel + whitelazy + whiteviol) / 4) %>%
+  
+  dplyr::select(acceptscale_01, skill, info, white_prej, hisp_prej, country) %>%
+  
+  mutate(country = factor(country, labels = c("Canada", "Mexico"))) %>%
+  
+  drop_na() %>%
+  
+  # we define high hisp prejudice to be below 3.5
+  
+  mutate(hisp_prej = ifelse(hisp_prej <= 3, "High", "Low")) %>%
+  
+  mutate(skill = factor(skill, labels = c("Low", "High"))) 
+
+  
+ct1_mturk_co <- data.frame(Country = character(),
+                  prejudice = character(), 
+                  estimate = double(),
+                  se = double())
+
+# mexico high prej
+
+ct1_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct1_mturk %>% filter(country == "Mexico",
+                                             hisp_prej == "High",
+                                             info == 0))
+
+ct1_mturk_co[nrow(ct1_mturk_co) + 1,] <- c("Mexico",
+                                  "High",
+                                  summary(ct1_mturk_fit)$coefficients[2,1],
+                                  summary(ct1_mturk_fit)$coefficients[2,2])
+
+# mexico low prej
+
+ct1_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct1_mturk %>% filter(country == "Mexico",
+                                             hisp_prej == "Low",
+                                             info == 0))
+
+ct1_mturk_co[nrow(ct1_mturk_co) + 1,] <- c("Mexico",
+                                  "Low",
+                                  summary(ct1_mturk_fit)$coefficients[2,1],
+                                  summary(ct1_mturk_fit)$coefficients[2,2])
+
+# Canada high prej
+
+ct1_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct1_mturk %>% filter(country == "Canada",
+                                             hisp_prej == "High",
+                                             info == 0))
+
+ct1_mturk_co[nrow(ct1_mturk_co) + 1,] <- c("Canada",
+                                  "High",
+                                  summary(ct1_mturk_fit)$coefficients[2,1],
+                                  summary(ct1_mturk_fit)$coefficients[2,2])
+
+# Canada low prej
+
+ct1_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct1_mturk %>% filter(country == "Canada",
+                                             hisp_prej == "Low",
+                                             info == 0))
+
+ct1_mturk_co[nrow(ct1_mturk_co) + 1,] <- c("Canada",
+                                  "Low",
+                                  summary(ct1_mturk_fit)$coefficients[2,1],
+                                  summary(ct1_mturk_fit)$coefficients[2,2])
+
+
+# GRAPH
+
+ct1_mturk_co <- ct1_mturk_co %>%
+  
+  mutate(estimate = as.double(estimate)) %>% 
+  
+  mutate(se = as.double(se)) %>%
+  
+  mutate(lb = (estimate - (1.96 * se))) %>%
+  
+  mutate(ub = (estimate + (1.96 * se)))
+
+ct1_mturk_co %>%
+  
+  group_by(prejudice, Country) %>%
+  
+  ggplot() +
+  
+  geom_pointrange(aes(x = prejudice, 
+             y = estimate, 
+             ymin = lb, 
+             ymax = ub, 
+             shape = Country,
+             fill = Country),
+             position = position_dodge(width=.5),
+             size = 1) + 
+  
+  geom_hline(yintercept=0) + 
+  
+  labs(x = "Prejudice Level",
+       y = "Skill Premium Afforded",
+       title = "Critical Test 1 Analysis with Mechanical Turk Data") + 
+  
+  theme_classic()
+
+```
+
+We confirm the results of the original paper, showing that those with high 
+levels of prejudice against hispanics afford a higher skill premium to Mexican
+immigrants than they do white immigrants. While we don't reach the levels of 
+significance of the original paper since we have overlapping error bars, the 
+trend is at least directionally the same. We also reach significance in the 
+amount of skill premium places on immigrants of different countries by 
+individuals in the same population pool. 
+
+# Critical Test 1 with Survey Sampling International Data
+
+The analysis done here is largely the same as above but with a different set of 
+data gathered later by the researchers. This data set was collected to affirm
+the results of the mechanical turk data, and to ask additional questions 
+relevant to critical test 4. 
+
+```{r}
+
+ct1_ssi <- ssi %>% 
+  
+  mutate(hisp_prej = (hispintel + hisplazy + hispviol) / 3) %>%
+  
+  dplyr::select(admitscale_01, skill, hisp_prej, mexico, sweden) %>%
+  
+  drop_na() %>%
+  
+  # we define low hisp prejudice to be below 2.5
+  
+  mutate(hisp_prej = ifelse(hisp_prej <= 2.5, "Low", "High")) %>%
+  
+  mutate(skill = factor(skill, labels = c("Low", "High"))) 
+
+ct1_ssi_co <- data.frame(Country = character(),
+                  prejudice = character(), 
+                  estimate = double(),
+                  se = double())
+
+# mexico high prej
+
+ct1_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct1_ssi %>% filter(mexico == 1,
+                                             hisp_prej == "High"))
+
+ct1_ssi_co[nrow(ct1_ssi_co) + 1,] <- c("Mexico",
+                                  "High",
+                                  summary(ct1_ssi_fit)$coefficients[2,1],
+                                  summary(ct1_ssi_fit)$coefficients[2,2])
+
+# mexico low prej
+
+ct1_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct1_ssi %>% filter(mexico == 1,
+                                             hisp_prej == "Low"))
+
+ct1_ssi_co[nrow(ct1_ssi_co) + 1,] <- c("Mexico",
+                                  "Low",
+                                  summary(ct1_ssi_fit)$coefficients[2,1],
+                                  summary(ct1_ssi_fit)$coefficients[2,2])
+
+# sweden high prej
+
+ct1_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct1_ssi %>% filter(mexico == 0,
+                                             hisp_prej == "High"))
+
+ct1_ssi_co[nrow(ct1_ssi_co) + 1,] <- c("Sweden",
+                                  "High",
+                                  summary(ct1_ssi_fit)$coefficients[2,1],
+                                  summary(ct1_ssi_fit)$coefficients[2,2])
+
+# sweden low prej
+
+ct1_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct1_ssi %>% filter(mexico == 0,
+                                             hisp_prej == "Low"))
+
+ct1_ssi_co[nrow(ct1_ssi_co) + 1,] <- c("Sweden",
+                                  "Low",
+                                  summary(ct1_ssi_fit)$coefficients[2,1],
+                                  summary(ct1_ssi_fit)$coefficients[2,2])
+
+# GRAPH
+
+ct1_ssi_co <- ct1_ssi_co %>%
+  
+  mutate(estimate = as.double(estimate)) %>% 
+  
+  mutate(se = as.double(se)) %>%
+  
+  mutate(lb = (estimate - (1.96 * se))) %>%
+  
+  mutate(ub = (estimate + (1.96 * se)))
+
+ct1_ssi_co %>%
+  
+  group_by(prejudice, Country) %>%
+  
+  ggplot() +
+  
+  geom_pointrange(aes(x = prejudice, 
+             y = estimate, 
+             ymin = lb, 
+             ymax = ub, 
+             shape = Country,
+             fill = Country),
+             position = position_dodge(width=.5),
+             size = 1) + 
+  
+  geom_hline(yintercept=0) + 
+  
+  labs(x = "Prejudice Level",
+       y = "Skill Premium Afforded",
+       title =  "Critical Test 1 Analysis with SSI Data") + 
+  
+  theme_classic()
+
+```
+
+The results here are consistent with the results derived in the original paper.
+We see the same trend with high prejudice individuals having a higher skill 
+premium for mexican immigrants than low prejudice individuals. This result 
+continues to challenge the race neutral assumptions of previous literature. 
+
+# Critical Test 2  with Mechanical Turk Data
+
+For critical test 2, we segment respondents by their belief on whether the see
+believe high or low skill immigrants are better (or if they see them equally). 
+Here, we are looking for the same evidence of higher levels of a skill premium
+for Mexican immigrants compared to white Canadian immigrants. 
+
+```{r}
+
+# Data Cleaning
+
+ct2_mturk <- mturk %>% 
+  
+  dplyr::select(acceptscale_01, skill, info, country, skillbelief_01) %>%
+  
+  drop_na() %>%
+  
+  # we define high hisp prejudice to be below 3.5
+  
+  mutate(skillbelief = factor(skillbelief_01, labels = c("Low", 
+                                                            "Equal", 
+                                                            "High"))) %>%
+  
+  mutate(country = factor(country, labels = c("Canada", "Mexico"))) %>%
+  
+  mutate(skill = factor(skill, labels = c("Low", "High"))) 
+
+# empty results
+  
+ct2_mturk_co <- data.frame(Country = character(),
+                  skillbelief = character(), 
+                  estimate = double(),
+                  se = double())
+
+# models
+
+# mexico low
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(country == "Mexico",
+                                             skillbelief == "Low",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Mexico",
+                                  "Low Skill",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# mexico equal
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(country == "Mexico",
+                                             skillbelief == "Equal",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Mexico",
+                                  "Equal",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# mexico high
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(country == "Mexico",
+                                             skillbelief == "High",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Mexico",
+                                  "High Skill",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# Canada Low
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(country == "Canada",
+                                             skillbelief == "Low",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Canada",
+                                  "Low Skill",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# Canada Equal
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(country == "Canada",
+                                             skillbelief == "Equal",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Canada",
+                                  "Equal",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# Canada High
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(country == "Canada",
+                                             skillbelief == "High",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Canada",
+                                  "High Skill",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# Pooled Low
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(
+                                             skillbelief == "Low",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Pooled",
+                                  "Low Skill",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# Pooled Equal
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(
+                                             skillbelief == "Equal",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Pooled",
+                                  "Equal",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# ooled High
+
+ct2_mturk_fit <- glm(acceptscale_01 ~ skill,
+                       data = ct2_mturk %>% filter(
+                                             skillbelief == "High",
+                                             info == 0))
+
+ct2_mturk_co[nrow(ct2_mturk_co) + 1,] <- c("Pooled",
+                                  "High Skill",
+                                  summary(ct2_mturk_fit)$coefficients[2,1],
+                                  summary(ct2_mturk_fit)$coefficients[2,2])
+
+# GRAPH
+
+ct2_mturk_co <- ct2_mturk_co %>%
+  
+  mutate(estimate = as.double(estimate)) %>% 
+  
+  mutate(se = as.double(se)) %>%
+  
+  mutate(lb = (estimate - (1.96 * se))) %>%
+  
+  mutate(ub = (estimate + (1.96 * se)))
+
+ct2_mturk_co %>%
+  
+  group_by(skillbelief, Country) %>%
+  
+  ggplot() +
+  
+  geom_pointrange(aes(x = skillbelief, 
+             y = estimate, 
+             ymin = lb, 
+             ymax = ub, 
+             shape = Country,
+             fill = Country),
+             position = position_dodge(width=.5)) + 
+  
+  geom_hline(yintercept=0) + 
+  
+  labs(x = "Type of Immigrant Prefered",
+       y = "Skill Premium Afforded",
+       title = "Critical Test 1 Reanalysis") + 
+  
+  theme_classic()
+
+```
+
+We again confirm the results of the original paper. Among all groups, the highest
+skill premium is given to Mexican immigrants, meaning across all groups they 
+care most about Mexicans being high skill than Canadian immigrants. Additionally,
+even the group that says they prefer low skilled immigrants still affords a 
+significant skill premium to all immigrants. This further supports the papers 
+conclusion that Americans have a higher skill bar for Latino immigrants than 
+they do for white immigrants, challenging the race neutral conclusions of
+previous papers. 
+
+# Critical Test 2 with SSI Data
+
+Here, we repeat the above analysis but with the SSI data. 
+
+```{r}
+
+ct2_ssi <- ssi %>% 
+  
+  
+  dplyr::select(admitscale_01, skill, mexico, sweden, skillbelief) %>%
+  
+  drop_na() %>%
+  
+  # we define low hisp prejudice to be below 2.5
+  
+  mutate(skillbelief = factor(skillbelief, labels = c("Low", "High"))) %>%
+  
+  mutate(skill = factor(skill, labels = c("Low", "High"))) 
+
+ct2_ssi_co <- data.frame(Country = character(),
+                  skillbelief = character(), 
+                  estimate = double(),
+                  se = double())
+
+# MODELS
+
+# mexico low
+
+ct2_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct2_ssi %>% filter(mexico == 1,
+                                             skillbelief == "Low"))
+
+ct2_ssi_co[nrow(ct2_ssi_co) + 1,] <- c("Mexico",
+                                  "Low Skill",
+                                  summary(ct2_ssi_fit)$coefficients[2,1],
+                                  summary(ct2_ssi_fit)$coefficients[2,2])
+
+# mexico high
+
+ct2_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct2_ssi %>% filter(mexico == 1,
+                                             skillbelief == "High"))
+
+ct2_ssi_co[nrow(ct2_ssi_co) + 1,] <- c("Mexico",
+                                  "High Skill",
+                                  summary(ct2_ssi_fit)$coefficients[2,1],
+                                  summary(ct2_ssi_fit)$coefficients[2,2])
+
+# sweden low
+
+ct2_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct2_ssi %>% filter(mexico == 0,
+                                             skillbelief == "Low"))
+
+ct2_ssi_co[nrow(ct2_ssi_co) + 1,] <- c("Sweden",
+                                  "Low Skill",
+                                  summary(ct2_ssi_fit)$coefficients[2,1],
+                                  summary(ct2_ssi_fit)$coefficients[2,2])
+
+# sweden high
+
+ct2_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct2_ssi %>% filter(mexico == 0,
+                                             skillbelief == "High"))
+
+ct2_ssi_co[nrow(ct2_ssi_co) + 1,] <- c("Sweden",
+                                  "High Skill",
+                                  summary(ct2_ssi_fit)$coefficients[2,1],
+                                  summary(ct2_ssi_fit)$coefficients[2,2])
+
+# pooled low
+
+ct2_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct2_ssi %>% filter(
+                                             skillbelief == "Low"))
+
+ct2_ssi_co[nrow(ct2_ssi_co) + 1,] <- c("Pooled",
+                                  "Low Skill",
+                                  summary(ct2_ssi_fit)$coefficients[2,1],
+                                  summary(ct2_ssi_fit)$coefficients[2,2])
+
+# pooled high
+
+ct2_ssi_fit <- glm(admitscale_01 ~ skill,
+                       data = ct2_ssi %>% filter(
+                                             skillbelief == "High"))
+
+ct2_ssi_co[nrow(ct2_ssi_co) + 1,] <- c("Pooled",
+                                  "High Skill",
+                                  summary(ct2_ssi_fit)$coefficients[2,1],
+                                  summary(ct2_ssi_fit)$coefficients[2,2])
+
+# GRAPH
+
+ct2_ssi_co <- ct2_ssi_co %>%
+  
+  mutate(estimate = as.double(estimate)) %>% 
+  
+  mutate(se = as.double(se)) %>%
+  
+  mutate(lb = (estimate - (1.96 * se))) %>%
+  
+  mutate(ub = (estimate + (1.96 * se)))
+
+ct2_ssi_co %>%
+  
+  group_by(skillbelief, Country) %>%
+  
+  ggplot() +
+  
+  geom_pointrange(aes(x = skillbelief, 
+             y = estimate, 
+             ymin = lb, 
+             ymax = ub, 
+             shape = Country,
+             fill = Country),
+             position = position_dodge(width=.5)) + 
+  
+  geom_hline(yintercept=0) + 
+  
+  labs(x = "Type of Immigrant Prefered",
+       y = "Skill Premium Afforded",
+       title = "Critical Test 1 Reanalysis") + 
+  
+  theme_classic()
+
+```
+
+In this analysis, we reach the same results as the original paper, in which
+the results from the regression show the opposite of what is shown in 
+the original paper, in that a lower skill premium is afforded for Mexican
+immigrants. However, the original paper completely ignores this result, not 
+mentioning the results of this regression at all. This raises some red flags for
+me, as while these results still show that there is a racial component to the 
+skill premium, this model has the opposite conclusion that the authors have
+in that respondents require a higher level of skill from white immigrants. 
+
+# Conclusion
+
+## Results of the replication
+
+We found in our replication of the original authors results that we largely 
+agree with the conclusion they reached. There is a rather clear ethnic
+component in the skill premium, with it seeming that prejudices against
+low skilled Latino immigrants has caused Americans to give consider skill
+more for that group then they do with immigrants from majority white countries.
+However, while the results in both 3B of the original paper and our analysis 
+of critical test 2 with the ssi data both show that the bias is in the opposite 
+direction, it still demonstrates a racial bias, inconsistent with the arguments
+in previous papers. 
+
+## Possible extensions
+
+The data sets gathered by the studies conducted by the authors offer
+opportunities to study prejudice beyond it's effects on the skill premium. 
+It would be interesting to look at prejudice as a function of education and 
+income, and look at the interplay of these variables and how an individual 
+evaluates a given individual. Also, investigating whether 
+there other "premiums", such as with age or gender. These analysis could 
+offer an interesting perspective on how Americans evaluate immigrants, which
+could impact political messaging, legislation, and education. 
+
+# References
+
+1. Newman, Benjamin J. and Malhotra, Neil. 2019. "Economic Reasoning with a 
+Racial Hue: Is the Immigration Consensus Purely Race Neutral?" 
+The Journal of Politics 2019 81(1), 153-166
+2. Hainmueller, Jens, and Daniel J. Hopkins. 2015. “The Hidden American
+Immigration Consensus: A Conjoint Analysis of Attitudes toward
+Immigrants.” American Journal of Political Science 59 (3): 529–48.
+3. Wright, Matthew, Morris Levy, and Jack Citrin. 2016. “Public Attitudes
+toward Immigration Policy across the Legal/Illegal Divide: The Role of
+Categorical and Attribute-Based Decision-Making.” Political Behavior
+38 (1): 229–53.
+
+## Code Repository
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
